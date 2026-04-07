@@ -1,0 +1,31 @@
+name: "MCP Verdict Check"
+description: "Check MCP package trust verdicts before deploy. Returns allow, warn, or block for each dependency."
+author: "AgentScore"
+
+branding:
+  icon: "shield"
+  color: "blue"
+
+inputs:
+  packages:
+    description: "Comma-separated list of npm package names to check. If empty, reads from package.json dependencies."
+    required: false
+    default: ""
+  fail-on:
+    description: "Fail the check if any package returns this verdict or worse. Options: warn, block. Default: block."
+    required: false
+    default: "block"
+  api-url:
+    description: "AgentScore API base URL."
+    required: false
+    default: "https://agentscores.xyz"
+
+outputs:
+  results:
+    description: "JSON array of verdict results for each package."
+  passed:
+    description: "Whether all packages passed the check (true/false)."
+
+runs:
+  using: "node20"
+  main: "index.js"
