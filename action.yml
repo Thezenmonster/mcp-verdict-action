@@ -27,5 +27,5 @@ outputs:
     description: "Whether all packages passed the check (true/false)."
 
 runs:
-  using: "node20"
+  using: "node22"
   main: "index.js"
