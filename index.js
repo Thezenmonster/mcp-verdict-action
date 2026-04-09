@@ -99,6 +99,48 @@ async function run() {
     core.info("");
     core.info(`Results: ${results.filter((r) => r.verdict === "allow").length} allow, ${results.filter((r) => r.verdict === "warn").length} warn, ${results.filter((r) => r.verdict === "block").length} block`);
 
+    // Report results back to AgentScore for repo inventory tracking
+    try {
+      const repo = process.env.GITHUB_REPOSITORY || "";
+      const commit = process.env.GITHUB_SHA || "";
+      const branch = process.env.GITHUB_REF_NAME || "";
+      const pr = process.env.GITHUB_EVENT_NAME === "pull_request"
+        ? parseInt(process.env.GITHUB_REF?.match(/\d+/)?.[0] || "0", 10)
+        : null;
+      const workflowUrl = `https://github.com/${repo}/actions/runs/${process.env.GITHUB_RUN_ID || ""}`;
+
+      const reportPayload = {
+        repo,
+        commit,
+        branch,
+        pr,
+        workflow_url: workflowUrl,
+        packages: results.map((r) => ({
+          name: r.package,
+          verdict: r.verdict,
+          score: r.score,
+          risk: r.risk,
+          reasons: r.reasons || [],
+        })),
+        passed,
+      };
+
+      await fetch(`${apiUrl}/api/repo/report`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "User-Agent": USER_AGENT,
+        },
+        body: JSON.stringify(reportPayload),
+        signal: AbortSignal.timeout(10000),
+      });
+
+      core.info("Repo inventory updated at AgentScore.");
+    } catch {
+      // Best effort. Don't fail the check because of reporting.
+      core.info("Could not report to AgentScore (non-blocking).");
+    }
+
     if (!passed) {
       core.setFailed(`One or more MCP packages failed the verdict check (threshold: ${failOn}).`);
     } else {
