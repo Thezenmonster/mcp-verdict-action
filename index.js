@@ -45,6 +45,7 @@ async function run() {
   try {
     const apiUrl = core.getInput("api-url");
     const failOn = core.getInput("fail-on");
+    const apiKey = core.getInput("api-key");
     const packagesInput = core.getInput("packages");
 
     let packages;
@@ -125,12 +126,17 @@ async function run() {
         passed,
       };
 
+      const reportHeaders = {
+        "Content-Type": "application/json",
+        "User-Agent": USER_AGENT,
+      };
+      if (apiKey) {
+        reportHeaders["X-AgentScore-Key"] = apiKey;
+      }
+
       await fetch(`${apiUrl}/api/repo/report`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "User-Agent": USER_AGENT,
-        },
+        headers: reportHeaders,
         body: JSON.stringify(reportPayload),
         signal: AbortSignal.timeout(10000),
       });
