@@ -20,9 +20,13 @@ inputs:
     required: false
     default: "https://agentscores.xyz"
   api-key:
-    description: "AgentScore API key for repo inventory tracking. Get one at agentscores.xyz/contact. Without this, verdict checks still work but repo inventory is not stored."
+    description: "AgentScore API key for repo inventory tracking and central policy. Without this, verdict checks still work but repo inventory is not stored."
     required: false
     default: ""
+  fail-open:
+    description: "If true, pass the check when the AgentScore API is unreachable. Default: false (fail-closed)."
+    required: false
+    default: "false"
 
 outputs:
   results:
