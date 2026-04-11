@@ -134,14 +134,18 @@ async function run() {
         reportHeaders["X-AgentScore-Key"] = apiKey;
       }
 
-      await fetch(`${apiUrl}/api/repo/report`, {
+      const reportRes = await fetch(`${apiUrl}/api/repo/report`, {
         method: "POST",
         headers: reportHeaders,
         body: JSON.stringify(reportPayload),
         signal: AbortSignal.timeout(10000),
       });
 
-      core.info("Repo inventory updated at AgentScore.");
+      if (reportRes.ok) {
+        core.info("Repo inventory updated at AgentScore.");
+      } else {
+        core.info(`Repo inventory not stored (HTTP ${reportRes.status}). Add api-key input to enable tracking.`);
+      }
     } catch {
       // Best effort. Don't fail the check because of reporting.
       core.info("Could not report to AgentScore (non-blocking).");
