@@ -20,7 +20,7 @@ inputs:
     required: false
     default: "https://www.agentscores.xyz"
   api-key:
-    description: "AgentScore API key for repo inventory tracking and central policy. Without this, verdict checks still work but repo inventory is not stored."
+    description: "AgentScore repo-scoped API key for central policy, inventory tracking, exceptions, and alerts. Without this, verdict checks still work but remain stateless."
     required: false
     default: ""
   fail-open:
@@ -35,5 +35,5 @@ outputs:
     description: "Whether all packages passed the check (true/false)."
 
 runs:
-  using: "node20"
+  using: "node24"
   main: "index.js"
