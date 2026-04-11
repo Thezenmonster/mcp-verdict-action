@@ -166,7 +166,7 @@ async function run() {
     const allow = decision.results.filter((result) => result.effective_verdict === "allow").length;
     const warn = decision.results.filter((result) => result.effective_verdict === "warn").length;
     const block = decision.results.filter((result) => result.effective_verdict === "block").length;
-    core.info(`Results: ${allow} allow, ${warn} warn, ${block} block | Policy: ${decision.policy_version} | fail-on: ${decision.fail_on}`);
+    core.info(`Results: ${allow} allow, ${warn} warn, ${block} block | Policy: ${decision.policy_version || "legacy"} | fail-on: ${decision.fail_on || failOn}`);
     core.info(`Repo inventory updated. Decision: ${decision.decision_id}`);
 
     core.setOutput("results", JSON.stringify(decision.results));
