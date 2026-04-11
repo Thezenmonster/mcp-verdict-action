@@ -18,7 +18,7 @@ inputs:
   api-url:
     description: "AgentScore API base URL."
     required: false
-    default: "https://agentscores.xyz"
+    default: "https://www.agentscores.xyz"
   api-key:
     description: "AgentScore API key for repo inventory tracking and central policy. Without this, verdict checks still work but repo inventory is not stored."
     required: false
