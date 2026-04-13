@@ -2,7 +2,52 @@ const core = require("@actions/core");
 const fs = require("fs");
 const path = require("path");
 
-const USER_AGENT = "AgentScore-GitHubAction/2.1";
+const USER_AGENT = "AgentScore-GitHubAction/2.2";
+
+const CAPABILITY_LABELS = {
+  filesystem_read: "file read",
+  filesystem_write: "file write",
+  network_egress: "outbound network",
+  browser_automation: "browser",
+  repo_read: "repo read",
+  repo_write: "repo write",
+  database_access: "database",
+  secrets_access: "secrets",
+  shell_exec: "shell exec",
+  email_messaging: "email/messaging",
+  cloud_infra: "cloud infra",
+  memory_state: "memory",
+  search_index: "search",
+  code_analysis: "code analysis",
+  unknown: "unknown",
+};
+
+function formatResultLine(result) {
+  const icon = result.effective_verdict === "allow"
+    ? "\u2705"
+    : result.effective_verdict === "warn"
+      ? "\u26A0\uFE0F"
+      : "\u274C";
+  const versionText = result.version ? `@${result.version}` : "";
+  let line = `  ${icon} ${result.name}${versionText}: ${result.effective_verdict} (score: ${result.score ?? "?"}/100)`;
+
+  if (result.requested_version && result.version && result.requested_version !== result.version) {
+    line += ` [requested ${result.requested_version}]`;
+  }
+  if (result.verdict !== result.effective_verdict) {
+    line += ` [exception: ${result.verdict} -> ${result.effective_verdict}]`;
+  }
+
+  core.info(line);
+
+  // Show capabilities if present
+  if (result.capabilities?.length > 0) {
+    const labels = result.capabilities
+      .map((c) => CAPABILITY_LABELS[c] || c)
+      .join(", ");
+    core.info(`     powers: ${labels}`);
+  }
+}
 
 function readJsonIfExists(filePath) {
   if (!fs.existsSync(filePath)) return null;
@@ -143,22 +188,7 @@ async function run() {
     }
 
     for (const result of decision.results) {
-      const icon = result.effective_verdict === "allow"
-        ? "\u2705"
-        : result.effective_verdict === "warn"
-          ? "\u26A0\uFE0F"
-          : "\u274C";
-      const versionText = result.version ? `@${result.version}` : "";
-      let line = `  ${icon} ${result.name}${versionText}: ${result.effective_verdict} (score: ${result.score ?? "?"}/100)`;
-
-      if (result.requested_version && result.version && result.requested_version !== result.version) {
-        line += ` [requested ${result.requested_version}]`;
-      }
-      if (result.verdict !== result.effective_verdict) {
-        line += ` [exception: ${result.verdict} -> ${result.effective_verdict}]`;
-      }
-
-      core.info(line);
+      formatResultLine(result);
     }
 
     if (decision.exceptions_applied?.length > 0) {
@@ -269,22 +299,7 @@ async function runWithOidc(apiUrl, oidcToken, packages, failOn, failOpen) {
   }
 
   for (const result of decision.results) {
-    const icon = result.effective_verdict === "allow"
-      ? "\u2705"
-      : result.effective_verdict === "warn"
-        ? "\u26A0\uFE0F"
-        : "\u274C";
-    const versionText = result.version ? `@${result.version}` : "";
-    let line = `  ${icon} ${result.name}${versionText}: ${result.effective_verdict} (score: ${result.score ?? "?"}/100)`;
-
-    if (result.requested_version && result.version && result.requested_version !== result.version) {
-      line += ` [requested ${result.requested_version}]`;
-    }
-    if (result.verdict !== result.effective_verdict) {
-      line += ` [exception: ${result.verdict} -> ${result.effective_verdict}]`;
-    }
-
-    core.info(line);
+    formatResultLine(result);
   }
 
   if (decision.exceptions_applied?.length > 0) {
