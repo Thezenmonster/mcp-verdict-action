@@ -47,6 +47,20 @@ function formatResultLine(result) {
       .join(", ");
     core.info(`     powers: ${labels}`);
   }
+
+  if (result.approval_review?.unapproved?.length > 0) {
+    const labels = result.approval_review.unapproved
+      .map((entry) => CAPABILITY_LABELS[entry.capability] || entry.capability)
+      .join(", ");
+    core.info(`     review required: ${labels}`);
+  }
+
+  if (result.approval_review?.stale?.length > 0) {
+    const labels = result.approval_review.stale
+      .map((entry) => `${CAPABILITY_LABELS[entry.capability] || entry.capability} (${(entry.reasons || []).join("; ")})`)
+      .join(", ");
+    core.info(`     reapproval required: ${labels}`);
+  }
 }
 
 function readJsonIfExists(filePath) {
