@@ -199,6 +199,27 @@ async function run() {
       }
     }
 
+    // Capability changes
+    if (decision.capability_diff) {
+      const cd = decision.capability_diff;
+      if (cd.new_capabilities?.length > 0) {
+        core.info("");
+        core.info("New AI capabilities introduced:");
+        for (const nc of cd.new_capabilities) {
+          const label = CAPABILITY_LABELS[nc.capability] || nc.capability;
+          core.info(`  + ${nc.package}: ${label}`);
+        }
+      }
+      if (cd.removed_capabilities?.length > 0) {
+        core.info("");
+        core.info("AI capabilities removed:");
+        for (const rc of cd.removed_capabilities) {
+          const label = CAPABILITY_LABELS[rc.capability] || rc.capability;
+          core.info(`  - ${rc.package}: ${label}`);
+        }
+      }
+    }
+
     core.info("");
     const allow = decision.results.filter((result) => result.effective_verdict === "allow").length;
     const warn = decision.results.filter((result) => result.effective_verdict === "warn").length;
@@ -307,6 +328,27 @@ async function runWithOidc(apiUrl, oidcToken, packages, failOn, failOpen) {
     core.info("Exceptions applied:");
     for (const exception of decision.exceptions_applied) {
       core.info(`  ${exception.package}: ${exception.original_verdict} -> ${exception.effective_verdict} (${exception.reason || "no reason"})`);
+    }
+  }
+
+  // Capability changes
+  if (decision.capability_diff) {
+    const cd = decision.capability_diff;
+    if (cd.new_capabilities?.length > 0) {
+      core.info("");
+      core.info("New AI capabilities introduced:");
+      for (const nc of cd.new_capabilities) {
+        const label = CAPABILITY_LABELS[nc.capability] || nc.capability;
+        core.info(`  + ${nc.package}: ${label}`);
+      }
+    }
+    if (cd.removed_capabilities?.length > 0) {
+      core.info("");
+      core.info("AI capabilities removed:");
+      for (const rc of cd.removed_capabilities) {
+        const label = CAPABILITY_LABELS[rc.capability] || rc.capability;
+        core.info(`  - ${rc.package}: ${label}`);
+      }
     }
   }
 
