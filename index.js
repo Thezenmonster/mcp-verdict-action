@@ -90,25 +90,217 @@ function resolveLockedVersion(lockfile, packageName) {
   return null;
 }
 
-function findMcpDependencies() {
-  const pkgPath = path.join(process.cwd(), "package.json");
-  if (!fs.existsSync(pkgPath)) {
-    core.warning("No package.json found in workspace root.");
-    return [];
+const MCP_NAME_PATTERNS = [/mcp/i, /@modelcontextprotocol/i, /model-context-protocol/i];
+
+const MCP_CONFIG_FILES = [
+  ".mcp.json",
+  "mcp.json",
+  ".cursor/mcp.json",
+  ".vscode/mcp.json",
+  "claude_desktop_config.json",
+];
+
+function isMcpPackageName(name) {
+  return MCP_NAME_PATTERNS.some((pattern) => pattern.test(name));
+}
+
+/**
+ * Extract npm package names from MCP config command objects.
+ * Handles patterns like: { "command": "npx", "args": ["-y", "@scope/mcp-server"] }
+ */
+function extractPackagesFromConfig(config) {
+  const packages = [];
+  const unsupported = [];
+
+  function walkServers(obj) {
+    if (!obj || typeof obj !== "object") return;
+
+    for (const [serverName, server] of Object.entries(obj)) {
+      if (!server || typeof server !== "object") continue;
+
+      // HTTP/URL-based servers -- not npm packages
+      if (server.url || server.type === "http") continue;
+
+      const command = typeof server.command === "string" ? server.command : "";
+      const args = Array.isArray(server.args) ? server.args.filter((a) => typeof a === "string") : [];
+
+      if (!command) continue;
+
+      // Check for non-npm install patterns
+      if (command === "uvx" || command === "pipx") {
+        const fromArg = args.indexOf("--from");
+        const source = fromArg >= 0 ? args[fromArg + 1] : args.find((a) => !a.startsWith("-"));
+        if (source && (source.startsWith("git+") || source.includes("github.com"))) {
+          unsupported.push({ server: serverName, source, reason: "git URL install (not an npm package)" });
+        } else if (source) {
+          unsupported.push({ server: serverName, source, reason: "Python package (not scannable via npm)" });
+        }
+        continue;
+      }
+
+      if (command === "docker") {
+        unsupported.push({ server: serverName, source: args.join(" "), reason: "Docker container (not scannable via npm)" });
+        continue;
+      }
+
+      // npm-based commands: npx, pnpm, pnpx, bunx, yarn, npm
+      const npmCommands = ["npx", "pnpm", "pnpx", "bunx", "yarn", "npm"];
+      if (!npmCommands.includes(command)) continue;
+
+      for (const arg of args) {
+        if (!arg || arg.startsWith("-")) continue;
+        if (["exec", "dlx", "create", "-y"].includes(arg)) continue;
+        // Strip @latest or @version suffix for the name check
+        const nameOnly = arg.replace(/@(latest|[\d.]+.*)$/, "");
+        if (isMcpPackageName(nameOnly) || isMcpPackageName(arg)) {
+          packages.push({
+            name: nameOnly,
+            requested_version: arg.includes("@") && !arg.endsWith("@latest") ? arg.split("@").pop() : null,
+            version: null,
+            source: "mcp-config",
+          });
+        }
+      }
+    }
   }
 
-  const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8"));
-  const lockfile = readJsonIfExists(path.join(process.cwd(), "package-lock.json"));
-  const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
-  const mcpPatterns = [/mcp/i, /@modelcontextprotocol/i, /model-context-protocol/i];
+  // Handle { mcpServers: { ... } } or { "mcpServers": { ... } }
+  if (config.mcpServers) {
+    walkServers(config.mcpServers);
+  }
+  // Handle { context_servers: { ... } } (Zed format)
+  if (config.context_servers) {
+    walkServers(config.context_servers);
+  }
+  // Handle top-level server objects
+  if (!config.mcpServers && !config.context_servers) {
+    walkServers(config);
+  }
 
-  return Object.entries(allDeps)
-    .filter(([name]) => mcpPatterns.some((pattern) => pattern.test(name)))
-    .map(([name, requestedVersion]) => ({
-      name,
-      requested_version: requestedVersion,
-      version: resolveLockedVersion(lockfile, name) || normalizeRequestedVersion(requestedVersion),
-    }));
+  return { packages, unsupported };
+}
+
+/**
+ * Find MCP config files and extract packages from them.
+ */
+function findMcpConfigPackages() {
+  const packages = [];
+  const allUnsupported = [];
+  const checkedFiles = [];
+
+  for (const configFile of MCP_CONFIG_FILES) {
+    const configPath = path.join(process.cwd(), configFile);
+    const config = readJsonIfExists(configPath);
+    if (!config) continue;
+
+    checkedFiles.push(configFile);
+    const { packages: found, unsupported } = extractPackagesFromConfig(config);
+    packages.push(...found);
+    allUnsupported.push(...unsupported);
+  }
+
+  return { packages, unsupported: allUnsupported, checkedFiles };
+}
+
+/**
+ * Find MCP packages in workspace subdirectories.
+ */
+function findWorkspacePackages() {
+  const pkgPath = path.join(process.cwd(), "package.json");
+  const pkg = readJsonIfExists(pkgPath);
+  if (!pkg || !pkg.workspaces) return [];
+
+  const workspaceDirs = Array.isArray(pkg.workspaces) ? pkg.workspaces : pkg.workspaces.packages || [];
+  const packages = [];
+
+  for (const pattern of workspaceDirs) {
+    // Simple glob: replace * with directory listing
+    const base = pattern.replace(/\/?\*.*$/, "");
+    const basePath = path.join(process.cwd(), base);
+    if (!fs.existsSync(basePath) || !fs.statSync(basePath).isDirectory()) continue;
+
+    const entries = pattern.includes("*")
+      ? fs.readdirSync(basePath).map((d) => path.join(basePath, d))
+      : [basePath];
+
+    for (const dir of entries) {
+      const wsPkgPath = path.join(dir, "package.json");
+      const wsPkg = readJsonIfExists(wsPkgPath);
+      if (!wsPkg) continue;
+
+      const allDeps = { ...wsPkg.dependencies, ...wsPkg.devDependencies };
+      const lockfile = readJsonIfExists(path.join(dir, "package-lock.json"))
+        || readJsonIfExists(path.join(process.cwd(), "package-lock.json"));
+
+      for (const [name, requestedVersion] of Object.entries(allDeps)) {
+        if (!isMcpPackageName(name)) continue;
+        packages.push({
+          name,
+          requested_version: requestedVersion,
+          version: resolveLockedVersion(lockfile, name) || normalizeRequestedVersion(requestedVersion),
+          source: "workspace",
+        });
+      }
+    }
+  }
+
+  return packages;
+}
+
+function findMcpDependencies() {
+  const seen = new Set();
+  const results = [];
+
+  function addUnique(pkg) {
+    if (seen.has(pkg.name)) return;
+    seen.add(pkg.name);
+    results.push(pkg);
+  }
+
+  // 1. Root package.json
+  const pkgPath = path.join(process.cwd(), "package.json");
+  const pkg = readJsonIfExists(pkgPath);
+  if (pkg) {
+    const lockfile = readJsonIfExists(path.join(process.cwd(), "package-lock.json"));
+    const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
+
+    for (const [name, requestedVersion] of Object.entries(allDeps)) {
+      if (!isMcpPackageName(name)) continue;
+      addUnique({
+        name,
+        requested_version: requestedVersion,
+        version: resolveLockedVersion(lockfile, name) || normalizeRequestedVersion(requestedVersion),
+        source: "package.json",
+      });
+    }
+  }
+
+  // 2. MCP config files (.mcp.json, mcp.json, etc.)
+  const { packages: configPackages, unsupported, checkedFiles } = findMcpConfigPackages();
+  for (const cp of configPackages) addUnique(cp);
+
+  if (checkedFiles.length > 0) {
+    core.info(`MCP config files found: ${checkedFiles.join(", ")}`);
+  }
+
+  // Warn about unsupported sources
+  for (const u of unsupported) {
+    core.warning(`${u.server}: ${u.reason} (${u.source}). Not scannable by AgentScore.`);
+  }
+
+  // 3. Workspace subdirectories
+  const workspacePackages = findWorkspacePackages();
+  for (const wp of workspacePackages) addUnique(wp);
+
+  if (workspacePackages.length > 0) {
+    core.info(`Found ${workspacePackages.length} MCP package(s) in workspace subdirectories.`);
+  }
+
+  if (results.length === 0 && !pkg) {
+    core.warning("No package.json or MCP config files found in workspace root.");
+  }
+
+  return results;
 }
 
 async function run() {
