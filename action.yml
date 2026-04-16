@@ -1,5 +1,5 @@
 name: "MCP Verdict Check"
-description: "Check MCP package trust verdicts before deploy. Returns allow, warn, or block for each dependency."
+description: "Check MCP package trust verdicts before deploy. Returns allow, warn, or block for each dependency. Posts capability summary as a PR comment."
 author: "AgentScore"
 
 branding:

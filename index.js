@@ -1,8 +1,9 @@
 const core = require("@actions/core");
+const github = require("@actions/github");
 const fs = require("fs");
 const path = require("path");
 
-const USER_AGENT = "AgentScore-GitHubAction/2.2";
+const USER_AGENT = "AgentScore-GitHubAction/2.3";
 
 const CAPABILITY_LABELS = {
   filesystem_read: "file read",
@@ -436,6 +437,8 @@ async function run() {
     core.setOutput("results", JSON.stringify(decision.results));
     core.setOutput("passed", String(decision.passed));
 
+    await postPRComment(decision);
+
     if (!decision.passed) {
       core.setFailed("One or more MCP packages failed the policy check.");
     } else {
@@ -568,10 +571,107 @@ async function runWithOidc(apiUrl, oidcToken, packages, failOn, failOpen) {
   core.setOutput("results", JSON.stringify(decision.results));
   core.setOutput("passed", String(decision.passed));
 
+  await postPRComment(decision);
+
   if (!decision.passed) {
     core.setFailed("One or more MCP packages failed the policy check.");
   } else {
     core.info("All MCP packages passed the policy check.");
+  }
+}
+
+async function postPRComment(decision) {
+  // Only post on pull_request events
+  if (process.env.GITHUB_EVENT_NAME !== "pull_request") return;
+
+  const token = process.env.GITHUB_TOKEN;
+  if (!token) return;
+
+  try {
+    const octokit = github.getOctokit(token);
+    const { owner, repo } = github.context.repo;
+    const prNumber = github.context.payload.pull_request?.number;
+    if (!prNumber) return;
+
+    const results = decision.results || [];
+    if (results.length === 0) return;
+
+    // Build the comment body
+    const lines = [];
+    const passed = decision.passed;
+    const icon = passed ? "&#x2705;" : "&#x26A0;&#xFE0F;";
+
+    lines.push(`## ${icon} AgentScore Policy Gate`);
+    lines.push("");
+    lines.push(`| Package | Score | Verdict | Powers |`);
+    lines.push(`|---------|-------|---------|--------|`);
+
+    for (const r of results) {
+      const versionText = r.version ? `@${r.version}` : "";
+      const verdict = r.effective_verdict || r.verdict || "unknown";
+      const verdictBadge = verdict === "allow" ? "&#x2705; allow" : verdict === "warn" ? "&#x26A0;&#xFE0F; warn" : verdict === "block" ? "&#x274C; block" : "? unknown";
+      const powers = (r.capabilities || [])
+        .map((c) => CAPABILITY_LABELS[c] || c)
+        .join(", ") || "none detected";
+      lines.push(`| \`${r.name}${versionText}\` | ${r.score ?? "?"}/100 | ${verdictBadge} | ${powers} |`);
+    }
+
+    // Capability diff
+    if (decision.capability_diff) {
+      const cd = decision.capability_diff;
+      if (cd.new_capabilities?.length > 0) {
+        lines.push("");
+        lines.push("**New AI capabilities introduced:**");
+        for (const nc of cd.new_capabilities) {
+          lines.push(`- \`${nc.package}\`: ${CAPABILITY_LABELS[nc.capability] || nc.capability}`);
+        }
+      }
+      if (cd.removed_capabilities?.length > 0) {
+        lines.push("");
+        lines.push("**AI capabilities removed:**");
+        for (const rc of cd.removed_capabilities) {
+          lines.push(`- \`${rc.package}\`: ${CAPABILITY_LABELS[rc.capability] || rc.capability}`);
+        }
+      }
+    }
+
+    // Exceptions
+    if (decision.exceptions_applied?.length > 0) {
+      lines.push("");
+      lines.push("**Exceptions applied:**");
+      for (const ex of decision.exceptions_applied) {
+        lines.push(`- \`${ex.package}\`: ${ex.original_verdict} -> ${ex.effective_verdict} (${ex.reason || "no reason"})`);
+      }
+    }
+
+    lines.push("");
+    lines.push(`Policy: ${decision.policy_version || "latest"} | fail-on: ${decision.fail_on || "block"}`);
+    lines.push("");
+    lines.push(`<sub>[Full report](https://agentscores.xyz/policy-gate) | [AgentScore](https://agentscores.xyz)</sub>`);
+
+    const body = lines.join("\n");
+
+    // Check if we already commented on this PR (update instead of duplicate)
+    const { data: comments } = await octokit.rest.issues.listComments({
+      owner, repo, issue_number: prNumber,
+    });
+    const existing = comments.find((c) =>
+      c.user?.login === "github-actions[bot]" && c.body?.includes("AgentScore Policy Gate")
+    );
+
+    if (existing) {
+      await octokit.rest.issues.updateComment({
+        owner, repo, comment_id: existing.id, body,
+      });
+    } else {
+      await octokit.rest.issues.createComment({
+        owner, repo, issue_number: prNumber, body,
+      });
+    }
+
+    core.info("PR comment posted.");
+  } catch (err) {
+    core.warning(`Could not post PR comment: ${err.message}`);
   }
 }
 
