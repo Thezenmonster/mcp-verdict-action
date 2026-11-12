@@ -1,5 +1,7 @@
 # MCP Verdict Check
 
+> **Service end date: 31 December 2026 (UTC).** The AgentScore API that this Action calls closes at the end of that day. Do not add this Action to new workflows, and remove it from existing ones before then. From 1 January 2027 the API answers every request with HTTP 410. Without an API key the Action then reports every package as `unknown` and fails the check. With an API key or OIDC it fails with the closing message. If you set `fail-open: "true"`, it passes with a warning **without checking any package**, so remove the step rather than relying on that setting.
+
 GitHub Action that checks MCP package trust verdicts before deploy.
 
 Powered by [AgentScore](https://agentscores.xyz).
